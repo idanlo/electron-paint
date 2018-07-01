@@ -1,4 +1,11 @@
 const { ipcRenderer } = require("electron");
+const { dialog } = require("electron").remote;
+const sizeOf = require("image-size");
+const fs = require("fs");
+const Circle = require("./types/Circle");
+const Square = require("./types/Square");
+const Line = require("./types/Line");
+const Pixel = require("./types/Pixel");
 
 let cnv;
 let mode;
@@ -22,6 +29,7 @@ function setup() {
     currentCircle = null;
     currentSquare = null;
     drawing = [];
+    background(255);
 
     let divs = document.getElementsByClassName("controls");
     for (let i = 0; i < divs.length; i++) {
@@ -35,11 +43,10 @@ function setup() {
     }
 }
 
-function draw() {
+function draw() {}
+
+function updateScreen() {
     background(255);
-    stroke("blue");
-    strokeWeight(1);
-    point(100, 100);
     for (let i = 0; i < drawing.length; i++) {
         if (drawing[i] !== "separator") {
             drawing[i].show();
@@ -60,6 +67,7 @@ function mousePressed() {
                     current_color
                 )
             );
+            updateScreen();
         } else if (mode === "circle") {
             if (!currentCircle) {
                 currentCircle = new Circle(
@@ -69,6 +77,7 @@ function mousePressed() {
                     current_color
                 );
                 drawing.push(currentCircle);
+                updateScreen();
             }
         } else if (mode === "square") {
             if (!currentSquare) {
@@ -80,11 +89,11 @@ function mousePressed() {
                     current_color
                 );
                 drawing.push(currentSquare);
+                updateScreen();
             }
         } else if (mode === "fill") {
             loadPixels();
             let index = (mouseX + mouseY * width) * 4;
-
             // target_color = what the user wants to replace
             let target_color = color(
                 pixels[index],
@@ -95,6 +104,7 @@ function mousePressed() {
             // replacement_color = the color that will be instead of the target_color
             let replacement_color = color(current_color);
             floodFill(mouseX, mouseY, target_color, replacement_color);
+            updateScreen();
         }
     }
 }
@@ -112,6 +122,7 @@ function mouseDragged() {
                     current_color
                 )
             );
+            updateScreen();
         } else if (mode === "circle" && currentCircle) {
             let d = dist(
                 mouseX,
@@ -120,6 +131,7 @@ function mouseDragged() {
                 currentCircle.pos.y
             );
             currentCircle.radius = d;
+            updateScreen();
         } else if (mode === "square" && currentSquare) {
             let xdist =
                 max(mouseX, currentSquare.pos.x) -
@@ -129,6 +141,7 @@ function mouseDragged() {
                 min(mouseY, currentSquare.pos.y);
             currentSquare.w = xdist;
             currentSquare.h = ydist;
+            updateScreen();
         }
     }
 }
@@ -143,10 +156,39 @@ function mouseReleased() {
 }
 
 function windowResized() {
-    loadPixels();
-    cnv.size(windowWidth - 75, windowHeight);
-    cnv.position(75, 0);
-    updatePixels();
+    if (drawing.length > 0) {
+        cnv.size(windowWidth - 75, windowHeight);
+        cnv.position(75, 0);
+        updateScreen();
+    } else {
+        loadPixels();
+        cnv.size(windowWidth - 75, windowHeight);
+        cnv.position(75, 0);
+        updatePixels();
+    }
+}
+
+function floodFill(x, y, target_col, replace_col) {
+    if (x >= 0 && y >= 0 && x <= width && y <= height) {
+        let index = (x + y * width) * 4;
+        if (target_col === replace_col) {
+            return;
+        } else if (
+            (pixels[index] !== target_col.levels[0] &&
+                pixels[index + 1] !== target_col.levels[1] &&
+                pixels[index + 2] !== target_col.levels[2]) ||
+            pixels[index + 3] !== target_col.levels[3]
+        ) {
+            return;
+        } else {
+            drawing.push(new Pixel(x, y, replace_col));
+            floodFill(x, y - 1, target_col, replace_col);
+            floodFill(x - 1, y, target_col, replace_col);
+            floodFill(x, y + 1, target_col, replace_col);
+            floodFill(x + 1, y, target_col, replace_col);
+            return;
+        }
+    }
 }
 
 ipcRenderer.on("changecurrent_color", (event, data) => {
@@ -192,6 +234,7 @@ ipcRenderer.on("Undo", (event, data) => {
         ) {
             drawing.pop();
         }
+        updateScreen();
     }
 });
 
@@ -201,77 +244,123 @@ ipcRenderer.on("newFile", () => {
 });
 
 ipcRenderer.on("saveFile", () => {
-    saveCanvas(cnv, "myDrawing", "jpg");
+    // saveCanvas(cnv, "myDrawing", "jpg");
+
+    let str = {
+        data: []
+    };
+    drawing.forEach(item => {
+        let obj;
+        if (item === "separator") {
+            obj = {
+                type: "separator"
+            };
+        } else if (item instanceof Circle) {
+            obj = {
+                type: "Circle",
+                x: item.pos.x,
+                y: item.pos.y,
+                radius: item.radius,
+                color: item.color
+            };
+        } else if (item instanceof Line) {
+            obj = {
+                type: "Line",
+                fromx: item.from.x,
+                fromy: item.from.y,
+                tox: item.to.x,
+                toy: item.to.y,
+                color: item.color,
+                thickness: item.thickness
+            };
+        } else if (item instanceof Square) {
+            obj = {
+                type: "Square",
+                x: item.pos.x,
+                y: item.pos.y,
+                w: item.w,
+                h: item.h,
+                color: item.color
+            };
+        }
+        str.data.push(obj);
+    });
+    let jsondata = JSON.stringify(str);
+    dialog.showSaveDialog(
+        {
+            title: "Save your painting",
+            filters: [{ name: "Paint Image Data", extensions: ["pnt"] }]
+        },
+        fileName => {
+            fs.writeFile(fileName, jsondata, err => {
+                if (err) {
+                    console.log(err);
+                } else {
+                    console.log("The file has been created");
+                }
+            });
+        }
+    );
 });
 
-function Circle(x, y, radius, current_color) {
-    this.pos = createVector(x, y);
-    this.radius = radius;
-    this.current_color = current_color;
-
-    this.show = function() {
-        noStroke();
-        fill(this.current_color);
-        ellipse(this.pos.x, this.pos.y, this.radius * 2, this.radius * 2);
-    };
-}
-
-function Square(x, y, w, h, current_color) {
-    this.pos = createVector(x, y);
-    this.w = w;
-    this.h = h;
-    this.current_color = current_color;
-
-    this.show = function() {
-        noStroke();
-        fill(this.current_color);
-        rect(this.pos.x, this.pos.y, this.w, this.h);
-    };
-}
-
-function Line(xfrom, yfrom, xto, yto, thickness, current_color) {
-    this.from = createVector(xfrom, yfrom);
-    this.to = createVector(xto, yto);
-    this.thickness = thickness;
-    this.current_color = current_color;
-
-    this.show = function() {
-        stroke(this.current_color);
-        noFill();
-        strokeWeight(this.thickness);
-        line(this.from.x, this.from.y, this.to.x, this.to.y);
-    };
-}
-function Pixel(x, y, color) {
-    this.pos = createVector(x, y);
-    this.color = color;
-
-    this.show = function() {
-        strokeWeight(1);
-        stroke(this.color);
-        point(this.pos.x, this.pos.y);
-    };
-}
-
-function floodFill(x, y, target_col, replace_col) {
-    if (x >= 0 && y >= 0 && x <= width && y <= height) {
-        let index = (x + y * width) * 4;
-        if (target_col === replace_col) {
-            return;
-        } else if (
-            (pixels[index] !== target_col.levels[0] &&
-                pixels[index + 1] !== target_col.levels[1] &&
-                pixels[index + 2] !== target_col.levels[2]) ||
-            pixels[index + 3] !== target_col.levels[3]
-        ) {
-            return;
-        } else {
-            drawing.push(new Pixel(x, y, replace_col));
-            floodFill(x, y - 1, target_col, replace_col);
-            floodFill(x - 1, y, target_col, replace_col);
-            floodFill(x, y + 1, target_col, replace_col);
-            floodFill(x + 1, y, target_col, replace_col);
-            return;
+ipcRenderer.on("openFile", (event, data) => {
+    dialog.showOpenDialog(
+        {
+            title: "Open existing Paint file",
+            filters: [
+                {
+                    name: "Paint Image Data",
+                    extensions: ["pnt"]
+                }
+            ]
+        },
+        fileName => {
+            if (fileName && fileName.length > 0) {
+                fs.readFile(fileName[0], "utf8", (err, data) => {
+                    if (err) {
+                        console.log(err);
+                    } else {
+                        let jsondata = JSON.parse(data).data;
+                        drawing = [];
+                        jsondata.forEach(item => {
+                            if (item.type === "separator") {
+                                drawing.push(item.type);
+                            } else if (item.type === "Circle") {
+                                drawing.push(
+                                    new Circle(
+                                        item.x,
+                                        item.y,
+                                        item.radius,
+                                        item.color
+                                    )
+                                );
+                            } else if (item.type === "Square") {
+                                drawing.push(
+                                    new Square(
+                                        item.x,
+                                        item.y,
+                                        item.w,
+                                        item.h,
+                                        item.color
+                                    )
+                                );
+                            } else if (item.type === "Line") {
+                                drawing.push(
+                                    new Line(
+                                        item.fromx,
+                                        item.fromy,
+                                        item.tox,
+                                        item.toy,
+                                        item.thickness,
+                                        item.color
+                                    )
+                                );
+                            }
+                        });
+                        updateScreen();
+                    }
+                });
+            }
         }
-    }
-}
+    );
+});

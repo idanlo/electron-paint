@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu } = require("electron");
+const { app, BrowserWindow, Menu, dialog } = require("electron");
 const shell = require("electron").shell;
 
 // Keep a global reference of the window object, if you don't, the window will
@@ -30,12 +30,21 @@ function createWindow() {
             submenu: [
                 {
                     label: "New File",
+                    accelerator: "CmdOrCtrl+N",
                     click() {
                         win.webContents.send("newFile");
                     }
                 },
                 {
+                    label: "Open File",
+                    accelerator: "CmdOrCtrl+O",
+                    click() {
+                        win.webContents.send("openFile");
+                    }
+                },
+                {
                     label: "Save File",
+                    accelerator: "CmdOrCtrl+S",
                     click() {
                         win.webContents.send("saveFile");
                     }
