@@ -104,7 +104,10 @@ function mousePressed() {
             // replacement_color = the color that will be instead of the target_color
             let replacement_color = color(current_color);
             floodFill(mouseX, mouseY, target_color, replacement_color);
-            updateScreen();
+            console.log("FINISHED");
+            updatePixels();
+            pixels = [];
+            // updateScreen();
         }
     }
 }
@@ -169,26 +172,83 @@ function windowResized() {
 }
 
 function floodFill(x, y, target_col, replace_col) {
-    if (x >= 0 && y >= 0 && x <= width && y <= height) {
-        let index = (x + y * width) * 4;
-        if (target_col === replace_col) {
-            return;
-        } else if (
-            (pixels[index] !== target_col.levels[0] &&
-                pixels[index + 1] !== target_col.levels[1] &&
-                pixels[index + 2] !== target_col.levels[2]) ||
-            pixels[index + 3] !== target_col.levels[3]
+    let stack = [[x, y]];
+    let drawingBoundTop = 0;
+    while (stack.length) {
+        let newPos, x, y, pixelPos, reachLeft, reachRight;
+        newPos = stack.pop();
+        x = newPos[0];
+        y = newPos[1];
+
+        pixelPos = (y * width + x) * 4;
+        while (
+            y-- >= drawingBoundTop &&
+            matchStartColor(pixelPos, replace_col) &&
+            !matchStartColor(pixelPos, target_col)
         ) {
-            return;
-        } else {
-            drawing.push(new Pixel(x, y, replace_col));
-            floodFill(x, y - 1, target_col, replace_col);
-            floodFill(x - 1, y, target_col, replace_col);
-            floodFill(x, y + 1, target_col, replace_col);
-            floodFill(x + 1, y, target_col, replace_col);
-            return;
+            pixelPos -= width * 4;
+        }
+        pixelPos += width * 4;
+        ++y;
+        reachLeft = false;
+        reachRight = false;
+        while (
+            y++ < height - 1 &&
+            matchStartColor(pixelPos, replace_col) &&
+            !matchStartColor(pixelPos, target_col)
+        ) {
+            colorPixel(pixelPos, replace_col);
+            // drawing.push(new Pixel(x, y, replace_col));
+            if (x > 0) {
+                if (
+                    matchStartColor(pixelPos - 4, replace_col) &&
+                    !matchStartColor(pixelPos - 4, target_col)
+                ) {
+                    if (!reachLeft) {
+                        stack.push([x - 1, y]);
+                        reachLeft = true;
+                    }
+                } else if (reachLeft) {
+                    reachLeft = false;
+                }
+            }
+
+            if (x < width - 1) {
+                if (
+                    matchStartColor(pixelPos + 4, replace_col) &&
+                    !matchStartColor(pixelPos + 4, target_col)
+                ) {
+                    if (!reachRight) {
+                        stack.push([x + 1, y]);
+                        reachRight = true;
+                    }
+                } else if (reachRight) {
+                    reachRight = false;
+                }
+            }
+
+            pixelPos += width * 4;
         }
     }
+}
+
+function matchStartColor(pixelPos, curColor) {
+    var r = pixels[pixelPos];
+    var g = pixels[pixelPos + 1];
+    var b = pixels[pixelPos + 2];
+
+    return (
+        r !== curColor.levels[0] ||
+        g !== curColor.levels[1] ||
+        b !== curColor.levels[2]
+    );
+}
+
+function colorPixel(pixelPos, curColor) {
+    pixels[pixelPos] = curColor.levels[0];
+    pixels[pixelPos + 1] = curColor.levels[1];
+    pixels[pixelPos + 2] = curColor.levels[2];
+    pixels[pixelPos + 3] = curColor.levels[3];
 }
 
 ipcRenderer.on("changecurrent_color", (event, data) => {
@@ -244,8 +304,6 @@ ipcRenderer.on("newFile", () => {
 });
 
 ipcRenderer.on("saveFile", () => {
-    // saveCanvas(cnv, "myDrawing", "jpg");
-
     let str = {
         data: []
     };
